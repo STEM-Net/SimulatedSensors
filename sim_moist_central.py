@@ -1,8 +1,4 @@
-# -------------------------------------------------------------------------
-# Copyright (c) Microsoft Corporation. All rights reserved.
-# Licensed under the MIT License. See License.txt in the project root for
-# license information.
-# --------------------------------------------------------------------------
+# Adapted from https://github.com/Azure/azure-iot-sdk-python/blob/main/samples/pnp/temp_controller_with_thermostats.py
 
 # VSM is Volumetric Soil Moisture
 import os
@@ -26,10 +22,9 @@ model_id = "dtmi:stemnetiot:MoistureController_1kc;1"
 # the components inside this Plug and Play device.
 # there can be multiple components from 1 interface
 # component names according to interfaces following pascal case.
-device_information_component_name = "deviceInformation"
-sensor_1_component_name = "sensor1"
-sensor_2_component_name = "sensor2"
-serial_number = "some_serial_number"
+device_information_component_name = "DeviceInfo"
+sensor_1_component_name = "Sensor"
+device_id = "some_device_id"
 #####################################################
 # COMMAND HANDLERS : User will define these handlers
 # depending on what commands the component defines
@@ -37,8 +32,6 @@ serial_number = "some_serial_number"
 #####################################################
 # GLOBAL VARIABLES
 SENSOR_1 = None
-SENSOR_2 = None
-
 
 class Sensor(object):
     def __init__(self, name, moving_win=10):
@@ -99,7 +92,7 @@ async def reboot_handler(values):
 async def max_min_handler(values):
     if values:
         print(
-            "Will return the max, min and average vsmerature from the specified time {since} to the current time".format(
+            "Will return the max, min and average vsm from the specified time {since} to the current time".format(
                 since=values
             )
         )
@@ -120,10 +113,8 @@ def create_max_min_report_response(sensor_name):
     This should be only used when the user wants to give a detailed response back to the Hub.
     :param values: The values that were received as part of the request.
     """
-    if "Sensor;1" in sensor_name and SENSOR_1:
+    if "MoistureController_1kc;1" in sensor_name and SENSOR_1:
         response_dict = SENSOR_1.create_report()
-    elif SENSOR_2:
-        response_dict = SENSOR_2.create_report()
     else:  # This is done to pass certification.
         response_dict = {}
         response_dict["maxVMS"] = 0
@@ -302,29 +293,17 @@ async def main():
     ################################################
     # Update readable properties from various components
 
-    properties_root = pnp_helper.create_reported_properties(serialNumber=serial_number)
-    properties_sensor1 = pnp_helper.create_reported_properties(
-        sensor_1_component_name, maxVMSSinceLastReboot=98.34
-    )
-    properties_sensor2 = pnp_helper.create_reported_properties(
-        sensor_2_component_name, maxVMSSinceLastReboot=48.92
-    )
+    properties_root = pnp_helper.create_reported_properties(DeviceID=device_id)
     properties_device_info = pnp_helper.create_reported_properties(
         device_information_component_name,
-        swVersion="5.5",
-        manufacturer="Contoso Device Corporation",
-        model="Contoso 4762B-turbo",
-        osName="Mac Os",
-        processorArchitecture="x86-64",
-        processorManufacturer="Intel",
-        totalStorage=1024,
-        totalMemory=32,
+        Model="STEM virtual-test",
+        FirmwareVersion="0.1",
+        TotalStorage=1024,
+        TotalMemory=32,
     )
 
     property_updates = asyncio.gather(
         device_client.patch_twin_reported_properties(properties_root),
-        device_client.patch_twin_reported_properties(properties_sensor1),
-        device_client.patch_twin_reported_properties(properties_sensor2),
         device_client.patch_twin_reported_properties(properties_device_info),
     )
 
@@ -333,9 +312,7 @@ async def main():
     print("Listening for command requests and property updates")
 
     global SENSOR_1
-    global SENSOR_2
     SENSOR_1 = Sensor(sensor_1_component_name, 10)
-    SENSOR_2 = Sensor(sensor_2_component_name, 10)
 
     listeners = asyncio.gather(
         execute_command_listener(
@@ -344,13 +321,6 @@ async def main():
         execute_command_listener(
             device_client,
             sensor_1_component_name,
-            method_name="getMaxMinReport",
-            user_command_handler=max_min_handler,
-            create_user_response_handler=create_max_min_report_response,
-        ),
-        execute_command_listener(
-            device_client,
-            sensor_2_component_name,
             method_name="getMaxMinReport",
             user_command_handler=max_min_handler,
             create_user_response_handler=create_max_min_report_response,
@@ -371,15 +341,6 @@ async def main():
             moisture_msg1 = {"MoistureValue": curr_vsm_ext}
             await send_telemetry_from_vsm_controller(
                 device_client, moisture_msg1, sensor_1_component_name
-            )
-
-            curr_vsm_int = random.randrange(10, 50)  # Current moisture in Celsius
-            SENSOR_2.record(curr_vsm_int)
-
-            moisture_msg2 = {"MoistureValue": curr_vsm_int}
-
-            await send_telemetry_from_vsm_controller(
-                device_client, moisture_msg2, sensor_2_component_name
             )
 
     send_telemetry_task = asyncio.ensure_future(send_telemetry())
